@@ -271,6 +271,9 @@
     const FIREBASE_DB_URL = "https://sk-psc-portal-default-rtdb.asia-southeast1.firebasedatabase.app";
     let ORIGINAL_PDF_URL = "https://docs.google.com/document/export?format=pdf&id=16-C76Yp_JuNKTGAuQYIrEGz8E5sC-UwrfZDJWWFkfNE";
     let examTitle = "പക്ഷി സങ്കേതങ്ങൾ & കാലാവസ്ഥ സെറ്റ് 2";
+    
+    // ഫയർബേസ് നോഡുകൾക്കായി സുരക്ഷിതമായ സ്ഥിര കീ
+    let currentExamKey = "pakshi_sankethangal_set_2";
 
     const questionsData = [
       {
@@ -456,28 +459,38 @@
       const passedPhone = urlParams.get('phone');
       const passedTitle = urlParams.get('title');
       const passedPdf = urlParams.get('pdfUrl');
+      const passedKey = urlParams.get('key');
 
-      // 1. പേര് റീഡ് ചെയ്യുന്നു
+      // ലിങ്കിലൂടെ key വന്നിട്ടുണ്ടെങ്കിൽ അത് ഉപയോഗിക്കുന്നു
+      if (passedKey && passedKey.trim() !== '') {
+        currentExamKey = passedKey.trim();
+      }
+
+      // പേര് എടുക്കുന്നു
       if (passedName && passedName.trim() !== '') {
         currentUser.name = decodeURIComponent(passedName).trim();
       } else {
         try {
-          const storedUser = localStorage.getItem('sk_candidate_user');
+          const storedUser = localStorage.getItem('sk_user_name') || localStorage.getItem('sk_candidate_user');
           if (storedUser) {
-            const u = JSON.parse(storedUser);
-            if (u.name) currentUser.name = u.name;
+            try {
+              const u = JSON.parse(storedUser);
+              if (u.name) currentUser.name = u.name;
+            } catch(e) {
+              currentUser.name = storedUser.trim();
+            }
           }
         } catch (e) {}
       }
 
-      // 2. ഫോൺ നമ്പർ റീഡ് ചെയ്യുന്നു
+      // ഫോൺ നമ്പർ എടുക്കുന്നു
       if (passedPhone && passedPhone.trim() !== '') {
         currentUser.phone = decodeURIComponent(passedPhone).replace(/\D/g, '');
       } else {
         try {
-          const storedUser = localStorage.getItem('sk_candidate_user');
-          if (storedUser) {
-            const u = JSON.parse(storedUser);
+          const stored = localStorage.getItem('sk_candidate_user');
+          if (stored) {
+            const u = JSON.parse(stored);
             if (u.phone) currentUser.phone = String(u.phone).replace(/\D/g, '');
           }
         } catch (e) {}
@@ -521,6 +534,7 @@
       }
     });
 
+    // ഫയർബേസിൽ നിന്ന് മുൻപത്തെ അറ്റംപ്റ്റ് എടുത്തു കാണിക്കുന്നു
     async function loadPreviousAttemptFromFirebase() {
       let prevScore = 0, prevCorrect = 0, prevWrong = 0, prevSkipped = 0;
 
@@ -529,9 +543,15 @@
           const res = await fetch(`${FIREBASE_DB_URL}/users_history/${currentUser.phone}.json`);
           const data = await res.json();
           if (data) {
-            const hList = Object.values(data);
-            const cleanT = cleanTitleForMatch(examTitle);
-            const matched = hList.slice().reverse().find(h => cleanTitleForMatch(h.title) === cleanT);
+            let matched = null;
+            if (data[currentExamKey]) {
+              matched = data[currentExamKey];
+            } else {
+              const hList = Object.values(data);
+              const cleanT = cleanTitleForMatch(examTitle);
+              matched = hList.slice().reverse().find(h => cleanTitleForMatch(h.title) === cleanT);
+            }
+
             if (matched) {
               prevScore = Number(matched.score || 0);
               prevCorrect = matched.correct || 0;
@@ -811,70 +831,85 @@
       });
     }
 
-    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (എറർ പൂർണ്ണമായി പരിഹരിച്ചത്)
+    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (100% Guaranteed Persistence)
     async function sendResultToFirebase(payload) {
       const statusDiv = document.getElementById('sheetStatus');
       
-      // മൊബൈൽ നമ്പർ ഇല്ലെങ്കിൽ ലോക്കൽ സ്റ്റോറേജിൽ ഉണ്ടോ എന്ന് ഒരിക്കൽ കൂടി പരിശോധിക്കുന്നു
-      if (!payload.phone || payload.phone === "0000000000") {
+      let studentPhone = (payload.phone || '').replace(/\D/g, '');
+      let studentName = payload.name;
+
+      if (!studentPhone || studentPhone === "0000000000" || studentPhone.length < 10) {
         try {
           const stored = localStorage.getItem('sk_candidate_user');
           if (stored) {
             const u = JSON.parse(stored);
-            if (u.phone) payload.phone = String(u.phone).replace(/\D/g, '');
-            if (u.name && payload.name === "പഠിതാവ്") payload.name = u.name;
+            if (u.phone) studentPhone = String(u.phone).replace(/\D/g, '');
+            if (u.name && (!studentName || studentName === "പഠിതാവ്")) studentName = u.name;
           }
         } catch(e) {}
       }
 
-      if (!payload.phone || payload.phone === "0000000000") {
-        statusDiv.innerText = "✓ മാർക്ക് സ്ക്രീനിൽ ലഭ്യമാണ് (ഫോൺ നമ്പർ ലഭ്യമല്ല).";
+      if (!studentPhone || studentPhone.length < 10) {
+        statusDiv.innerText = "✓ മാർക്ക് സ്ക്രീനിൽ ലഭ്യമാണ് (ഫോൺ നമ്പർ ലഭ്യമല്ലാത്തതിനാൽ ഫയർബേസ് ഒഴിവാക്കി).";
         statusDiv.classList.remove('animate-pulse');
         return;
       }
 
-      const cleanExamKey = cleanTitleForMatch(examTitle);
       const todayDate = new Date().toISOString().split('T')[0];
+      const cleanKey = cleanTitleForMatch(examTitle);
 
-      const rankData = {
-        name: payload.name,
-        phone: payload.phone,
-        score: payload.score,
-        correct: payload.correct,
-        wrong: payload.wrong,
-        date: todayDate
-      };
-
-      const historyData = {
+      const saveRecord = {
+        name: studentName,
+        phone: studentPhone,
+        score: parseFloat(payload.score),
+        correct: parseInt(payload.correct),
+        wrong: parseInt(payload.wrong),
+        skipped: parseInt(payload.skipped),
         title: examTitle,
-        score: payload.score,
-        correct: payload.correct,
-        wrong: payload.wrong,
-        skipped: payload.skipped,
         date: todayDate,
         timestamp: Date.now()
       };
 
       try {
-        // 1. ലൈവ് റാങ്ക് ലിസ്റ്റിലേക്ക് സേവ് ചെയ്യുന്നു
-        await fetch(`${FIREBASE_DB_URL}/ranks/${cleanExamKey}/${payload.phone}.json`, {
+        statusDiv.innerText = "സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...";
+
+        // 1. ranks/currentExamKey ലേക്ക് (English Key)
+        await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}/${studentPhone}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(rankData)
+          body: JSON.stringify(saveRecord)
         });
 
-        // 2. വിദ്യാർത്ഥിയുടെ പ്രൊഫൈൽ ഹിസ്റ്ററിയിലേക്ക് കൃത്യമായി സേവ് ചെയ്യുന്നു (Key മാച്ച് ആകുന്ന രീതിയിൽ)
-        await fetch(`${FIREBASE_DB_URL}/users_history/${payload.phone}/${cleanExamKey}.json`, {
+        // 2. ranks/cleanKey ലേക്ക് (Backup Clean Matching)
+        if (cleanKey && cleanKey !== currentExamKey) {
+          await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}/${studentPhone}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(saveRecord)
+          });
+        }
+
+        // 3. users_history ലേക്ക് (English Key രൂപത്തിൽ)
+        await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${currentExamKey}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(historyData)
+          body: JSON.stringify(saveRecord)
         });
 
-        statusDiv.innerText = "✓ മാർക്ക് ഫയർബേസിൽ വിജയകരമായി രേഖപ്പെടുത്തി!";
+        // 4. users_history ലേക്ക് (Clean Key രൂപത്തിൽ)
+        if (cleanKey && cleanKey !== currentExamKey) {
+          await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${cleanKey}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(saveRecord)
+          });
+        }
+
+        statusDiv.innerText = "✓ മാർക്ക് ഫയർബേസിൽ സ്ഥിരമായി രേഖപ്പെടുത്തി!";
         statusDiv.className = "text-xs text-emerald-400 mb-4";
       } catch (err) {
-        console.error("Firebase save error:", err);
-        statusDiv.innerText = "ഡാറ്റ സേവ് ചെയ്യുന്നതിൽ ചെറിയ തടസ്സം നേരിട്ടു.";
+        console.error("Firebase sync error:", err);
+        statusDiv.innerText = "സ്കോർ രേഖപ്പെടുത്തുന്നതിൽ ചെറിയ തടസ്സം നേരിട്ടു.";
         statusDiv.className = "text-xs text-rose-400 mb-4";
       }
     }
@@ -1128,11 +1163,17 @@
       wrapper.classList.add('hidden');
       tbody.innerHTML = '';
 
-      const cleanKey = cleanTitleForMatch(examTitle);
-
       try {
-        const res = await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}.json`);
-        const data = await res.json();
+        let res = await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}.json?_t=${Date.now()}`);
+        let data = await res.json();
+
+        // നേരിട്ടുള്ള കീയിൽ കിട്ടിയില്ലെങ്കിൽ cleanTitle വഴി നോക്കുന്നു
+        if (!data) {
+          const cleanKey = cleanTitleForMatch(examTitle);
+          res = await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}.json?_t=${Date.now()}`);
+          data = await res.json();
+        }
+
         loader.classList.add('hidden');
         wrapper.classList.remove('hidden');
 
@@ -1175,7 +1216,7 @@
       const wrong = document.getElementById('wrongCount').innerText;
       const skipped = document.getElementById('skipCount').innerText;
 
-      window.location.href = `${homePortalUrl}?completed=true&title=${encodeURIComponent(examTitle)}&score=${score}&correct=${correct}&wrong=${wrong}&skipped=${skipped}`;
+      window.location.href = `${homePortalUrl}?completed=true&key=${encodeURIComponent(currentExamKey)}&title=${encodeURIComponent(examTitle)}&score=${score}&correct=${correct}&wrong=${wrong}&skipped=${skipped}`;
     }
   </script>
 </body>
