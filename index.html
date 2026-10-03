@@ -131,7 +131,7 @@
       <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 sm:p-8 shadow-2xl text-center space-y-5">
         
         <div class="flex justify-end">
-          <button type="button" onclick="returnToHomeWithData()" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl text-xs transition shadow flex items-center space-x-1.5">
+          <button type="button" onclick="returnToHomeWithData()" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl text-xs transition shadow flex items-center space-x-1.5 cursor-pointer">
             <span>🏠</span>
             <span>ഹോം പേജിലേക്ക് മടങ്ങുക</span>
           </button>
@@ -173,7 +173,7 @@
           </div>
         </div>
 
-        <div id="sheetStatus" class="text-xs text-cyan-400 animate-pulse">സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...</div>
+        <div id="sheetStatus" class="text-xs text-cyan-400 font-medium">സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...</div>
 
         <div id="pdfLockNotice" class="hidden max-w-md mx-auto p-3.5 bg-rose-950/40 border border-rose-800/80 rounded-xl text-xs text-rose-300">
           ⚠️ <strong>ശ്രദ്ധിക്കുക:</strong> ഔദ്യോഗിക നോട്ടുകൾ PDF ഡൗൺലോഡ് ചെയ്യാൻ കുറഞ്ഞത് <strong>8 മാർക്ക്</strong> നേടിയിരിക്കണം. നിങ്ങളുടെ നിലവിലെ സ്കോർ 8-ൽ താഴെയാണ്.
@@ -194,7 +194,7 @@
             📊 ലൈവ് റാങ്ക് ലിസ്റ്റ് കാണുക
           </button>
 
-          <button type="button" onclick="returnToHomeWithData()" class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-sm transition flex items-center space-x-1.5">
+          <button type="button" onclick="returnToHomeWithData()" class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-sm transition flex items-center space-x-1.5 cursor-pointer">
             <span>🏠</span>
             <span>ഹോം പോർട്ടൽ</span>
           </button>
@@ -448,7 +448,13 @@
 
     function cleanTitleForMatch(str) {
       if (!str) return "";
-      return String(str).replace(/[\s\-_,.:;()\/\\|\[\]+&]+/g, '').toLowerCase();
+      return String(str).replace(/[\s\-_,.:;()\/\\|\[\]+]+/g, '').toLowerCase();
+    }
+
+    function sanitizePhone(rawPhone) {
+      if (!rawPhone) return "";
+      let clean = String(rawPhone).replace(/\D/g, '');
+      return clean.length >= 10 ? clean.slice(-10) : clean;
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -480,16 +486,16 @@
       }
 
       if (passedPhone && passedPhone.trim() !== '') {
-        currentUser.phone = decodeURIComponent(passedPhone).replace(/\D/g, '');
+        currentUser.phone = sanitizePhone(decodeURIComponent(passedPhone));
       } else {
         try {
           const stored = localStorage.getItem('sk_candidate_user') || localStorage.getItem('sk_user_phone');
           if (stored) {
             try {
               const u = JSON.parse(stored);
-              if (u.phone) currentUser.phone = String(u.phone).replace(/\D/g, '');
+              if (u.phone) currentUser.phone = sanitizePhone(u.phone);
             } catch(e) {
-              currentUser.phone = String(stored).replace(/\D/g, '');
+              currentUser.phone = sanitizePhone(stored);
             }
           }
         } catch (e) {}
@@ -506,7 +512,7 @@
 
       const displayElem = document.getElementById('displayUser');
       if (displayElem) {
-        displayElem.innerText = (currentUser.phone && currentUser.phone !== "0000000000")
+        displayElem.innerText = (currentUser.phone && currentUser.phone.length === 10)
           ? `${currentUser.name} (+91 ${currentUser.phone})`
           : currentUser.name;
       }
@@ -536,9 +542,9 @@
     async function loadPreviousAttemptFromFirebase() {
       let prevScore = 0, prevCorrect = 0, prevWrong = 0, prevSkipped = 0;
 
-      if (currentUser.phone && currentUser.phone !== "0000000000") {
+      if (currentUser.phone && currentUser.phone.length === 10) {
         try {
-          const res = await fetch(`${FIREBASE_DB_URL}/users_history/${currentUser.phone}.json`);
+          const res = await fetch(`${FIREBASE_DB_URL}/users_history/${currentUser.phone}.json?_t=${Date.now()}`);
           const data = await res.json();
           if (data) {
             let matched = null;
@@ -551,7 +557,7 @@
             }
 
             if (matched) {
-              prevScore = Number(matched.score || 0);
+              prevScore = Number(matched.score !== undefined ? matched.score : (matched.MARK || 0));
               prevCorrect = matched.correct || 0;
               prevWrong = matched.wrong || 0;
               prevSkipped = matched.skipped || 0;
@@ -829,22 +835,21 @@
       });
     }
 
-    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (Fail-safe Persistence)
+    // 🌟 ആദ്യ ശ്രമം മാത്രം live_ranks ലേക്കും ബാക്കി Reattempt ഹിസ്റ്ററിയിലേക്കും സുരക്ഷിതമായി സേവ് ചെയ്യുന്ന ഫംഗ്ഷൻ
     async function sendResultToFirebase(payload) {
       const statusDiv = document.getElementById('sheetStatus');
       
-      let studentPhone = (payload.phone || '').replace(/\D/g, '');
-      let studentName = payload.name;
+      let studentPhone = sanitizePhone(payload.phone || currentUser.phone);
+      let studentName = payload.name || currentUser.name || 'വിദ്യാർത്ഥി';
 
       if (!studentPhone || studentPhone.length < 10) {
-        const savedPhone = localStorage.getItem('sk_user_phone') || 
-                           localStorage.getItem('user_phone') || 
-                           localStorage.getItem('sk_phone');
-        const savedName = localStorage.getItem('sk_user_name') || 
-                          localStorage.getItem('user_name');
-        
-        if (savedPhone) studentPhone = savedPhone.replace(/\D/g, '');
-        if (savedName && (!studentName || studentName === "പഠിതാവ്")) studentName = savedName;
+        try {
+          const stored = localStorage.getItem('sk_candidate_user');
+          if (stored) {
+            const u = JSON.parse(stored);
+            if (u.phone) studentPhone = sanitizePhone(u.phone);
+          }
+        } catch(e) {}
       }
 
       if (!studentPhone || studentPhone.length < 10) {
@@ -852,12 +857,17 @@
       }
 
       const todayDate = new Date().toISOString().split('T')[0];
-      const cleanKey = cleanTitleForMatch(examTitle);
+      const cleanKey = cleanTitleForMatch(examTitle) || currentExamKey;
+      const encodedCleanKey = encodeURIComponent(cleanKey);
+      const encodedExamKey = encodeURIComponent(currentExamKey);
 
       const saveRecord = {
-        name: studentName || 'പഠിതാവ്',
-        phone: studentPhone,
+        name: String(studentName),
+        phone: String(studentPhone),
+        Official_Name: String(studentName),
+        Phone: String(studentPhone),
         score: parseFloat(payload.score),
+        MARK: parseFloat(payload.score),
         correct: parseInt(payload.correct),
         wrong: parseInt(payload.wrong),
         skipped: parseInt(payload.skipped),
@@ -866,38 +876,76 @@
         timestamp: Date.now()
       };
 
+      const jsonBody = JSON.stringify(saveRecord);
+
       try {
-        statusDiv.innerText = "സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...";
-
-        // 1. ranks/currentExamKey (ഇംഗ്ലീഷ് കീ)
-        await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}/${studentPhone}.json`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(saveRecord)
-        });
-
-        // 2. ranks/cleanKey (ക്ലീൻ കീ)
-        if (cleanKey && cleanKey !== currentExamKey) {
-          await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}/${studentPhone}.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(saveRecord)
-          });
+        if (statusDiv) {
+          statusDiv.innerText = "സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...";
+          statusDiv.className = "text-xs text-cyan-400 animate-pulse font-medium";
         }
 
-        // 3. users_history ലേക്ക് സേവ് ചെയ്യുന്നു
-        await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${currentExamKey}.json`, {
-          method: 'PUT',
+        const fetchOptions = {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(saveRecord)
-        });
+          body: jsonBody,
+          keepalive: true
+        };
 
-        statusDiv.innerText = "✓ മാർക്ക് ഫയർബേസിൽ സ്ഥിരമായി രേഖപ്പെടുത്തി!";
-        statusDiv.className = "text-xs text-emerald-400 mb-4";
+        // 🌟 1. വിദ്യാർത്ഥിക്ക് ഈ പരീക്ഷയിൽ മുമ്പ് സ്കോർ ഉണ്ടോ എന്ന് പരിശോധിക്കുന്നു (First Attempt Check)
+        const [checkLiveRes, checkOldRes] = await Promise.all([
+          fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}/${studentPhone}.json`).catch(() => null),
+          fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}/${studentPhone}.json`).catch(() => null)
+        ]);
+
+        const liveData = checkLiveRes ? await checkLiveRes.json() : null;
+        const oldData = checkOldRes ? await checkOldRes.json() : null;
+
+        const isFirstAttempt = (!liveData || liveData.score === undefined) && (!oldData || (oldData.score === undefined && oldData.MARK === undefined));
+
+        let saveTasks = [];
+
+        // 🌟 2. ആദ്യ ശ്രമമാണെങ്കിൽ മാത്രം live_ranks ലേക്കും ranks ലേക്കും സേവ് ചെയ്യുന്നു (Reattempt ഓവർറൈറ്റ് ചെയ്യില്ല!)
+        if (isFirstAttempt) {
+          saveTasks.push(
+            fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}/${studentPhone}.json`, fetchOptions),
+            fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}/${studentPhone}.json`, fetchOptions),
+            fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedExamKey}/${studentPhone}.json`, fetchOptions)
+          );
+        }
+
+        // 🌟 3. വിദ്യാർത്ഥിയുടെ പ്രൊഫൈൽ ഹിസ്റ്ററിയിലേക്ക് (users_history) നിർബന്ധമായും എല്ലാ അറ്റംപ്റ്റുകളും എപ്പോഴും സേവ് ആകുന്നു
+        saveTasks.push(
+          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${encodedCleanKey}.json`, fetchOptions),
+          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${encodedExamKey}.json`, fetchOptions)
+        );
+
+        // 🌟 4. യൂസർ പ്രൊഫൈലിലേക്ക് വിവരങ്ങൾ നിലനിർത്തുന്നു
+        saveTasks.push(
+          fetch(`${FIREBASE_DB_URL}/users/${studentPhone}.json`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              Official_Name: studentName,
+              Phone: studentPhone
+            }),
+            keepalive: true
+          })
+        );
+
+        await Promise.all(saveTasks);
+
+        if (statusDiv) {
+          statusDiv.innerText = isFirstAttempt
+            ? "✓ ആദ്യ ശ്രമത്തിലെ മാർക്ക് റാങ്ക് ലിസ്റ്റിലും പ്രൊഫൈലിലും രേഖപ്പെടുത്തി!"
+            : "✓ Reattempt പൂർത്തിയായി (പ്രൊഫൈലിൽ അപ്ഡേറ്റ് ആയി, റാങ്ക് ലിസ്റ്റിൽ ആദ്യ ശ്രമം നിലനിർത്തി).";
+          statusDiv.className = "text-xs text-emerald-400 font-semibold mb-4";
+        }
       } catch (err) {
         console.error("Firebase sync error:", err);
-        statusDiv.innerText = "സ്കോർ രേഖപ്പെടുത്തുന്നതിൽ ചെറിയ തടസ്സം നേരിട്ടു.";
-        statusDiv.className = "text-xs text-rose-400 mb-4";
+        if (statusDiv) {
+          statusDiv.innerText = "സ്കോർ രേഖപ്പെടുത്തുന്നതിൽ ചെറിയ തടസ്സം നേരിട്ടു.";
+          statusDiv.className = "text-xs text-rose-400 mb-4";
+        }
       }
     }
 
@@ -993,7 +1041,7 @@
 
     async function recordFeedbackAndOpenDownload(feedbackVal) {
       document.getElementById('feedbackModal').classList.add('hidden');
-      if (currentUser.phone && currentUser.phone !== "0000000000") {
+      if (currentUser.phone && currentUser.phone.length === 10) {
         try {
           await fetch(`${FIREBASE_DB_URL}/feedbacks.json`, {
             method: 'POST',
@@ -1150,13 +1198,20 @@
       wrapper.classList.add('hidden');
       tbody.innerHTML = '';
 
+      const cleanKey = cleanTitleForMatch(examTitle) || currentExamKey;
+      const encodedCleanKey = encodeURIComponent(cleanKey);
+
       try {
-        let res = await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}.json?_t=${Date.now()}`);
+        let res = await fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}.json?_t=${Date.now()}`);
         let data = await res.json();
 
         if (!data) {
-          const cleanKey = cleanTitleForMatch(examTitle);
-          res = await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}.json?_t=${Date.now()}`);
+          res = await fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}.json?_t=${Date.now()}`);
+          data = await res.json();
+        }
+
+        if (!data) {
+          res = await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}.json?_t=${Date.now()}`);
           data = await res.json();
         }
 
@@ -1169,20 +1224,20 @@
         }
 
         let ranks = Object.values(data);
-        ranks.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+        ranks.sort((a, b) => Number(b.score !== undefined ? b.score : (b.MARK || 0)) - Number(a.score !== undefined ? a.score : (a.MARK || 0)));
 
         ranks.forEach((entry, idx) => {
-          let phoneStr = String(entry.phone || '').replace(/[^0-9]/g, '');
-          if (phoneStr.length >= 10) phoneStr = phoneStr.slice(-10);
-          const masked = (phoneStr && phoneStr.length >= 5) ? phoneStr.substring(0, 5) + '*****' : '---';
+          let phoneStr = sanitizePhone(entry.phone || entry.Phone);
+          const masked = (phoneStr && phoneStr.length >= 10) ? phoneStr.substring(0, 3) + '••••' + phoneStr.substring(7) : '---';
+          let markVal = Number(entry.score !== undefined ? entry.score : (entry.MARK || 0));
 
           const row = document.createElement('tr');
           row.className = 'hover:bg-slate-700/30 text-slate-300';
           row.innerHTML = `
             <td class="py-2.5 px-3 font-mono font-bold">${idx + 1}</td>
-            <td class="py-2.5 px-3 font-medium">${entry.name || 'വിദ്യാർത്ഥി'}</td>
+            <td class="py-2.5 px-3 font-medium">${entry.name || entry.Official_Name || 'വിദ്യാർത്ഥി'}</td>
             <td class="py-2.5 px-3 font-mono text-xs text-slate-400">${masked}</td>
-            <td class="py-2.5 px-3 text-right font-mono font-bold text-cyan-400">${Number(entry.score || 0).toFixed(2)}</td>
+            <td class="py-2.5 px-3 text-right font-mono font-bold text-cyan-400">${markVal.toFixed(2)}</td>
           `;
           tbody.appendChild(row);
         });
