@@ -79,7 +79,6 @@
           <span class="text-[11px] text-slate-400" id="answeredCountTxt">പൂർത്തിയാക്കിയത്: 0/25</span>
         </div>
 
-        <!-- Font Size Controls -->
         <div class="flex items-center space-x-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-xs">
           <span class="text-slate-400 text-[10px] mr-1">Font:</span>
           <button id="fontDecrease" class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded text-xs">A-</button>
@@ -134,7 +133,7 @@
         <div class="flex justify-end">
           <button type="button" onclick="returnToHomeWithData()" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl text-xs transition shadow flex items-center space-x-1.5">
             <span>🏠</span>
-            <span>ഹോം പേജിലേക്ക് മടങ്ങുക (Save Result)</span>
+            <span>ഹോം പേജിലേക്ക് മടങ്ങുക</span>
           </button>
         </div>
 
@@ -146,10 +145,8 @@
           </span>
         </div>
 
-        <!-- Dynamic Motivation Badge -->
         <div id="scoreMotivationBadge" class="max-w-xl mx-auto p-4 rounded-2xl border text-sm leading-relaxed transition shadow-inner"></div>
 
-        <!-- Clickable Score Cards -->
         <div id="scoreCardsContainer" class="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto">
           <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-700">
             <span class="text-[11px] text-slate-400 block font-semibold uppercase">നെറ്റ് സ്കോർ</span>
@@ -178,7 +175,6 @@
 
         <div id="sheetStatus" class="text-xs text-cyan-400 animate-pulse">സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...</div>
 
-        <!-- 8 Mark Cut-off Warning Box -->
         <div id="pdfLockNotice" class="hidden max-w-md mx-auto p-3.5 bg-rose-950/40 border border-rose-800/80 rounded-xl text-xs text-rose-300">
           ⚠️ <strong>ശ്രദ്ധിക്കുക:</strong> ഔദ്യോഗിക നോട്ടുകൾ PDF ഡൗൺലോഡ് ചെയ്യാൻ കുറഞ്ഞത് <strong>8 മാർക്ക്</strong> നേടിയിരിക്കണം. നിങ്ങളുടെ നിലവിലെ സ്കോർ 8-ൽ താഴെയാണ്.
         </div>
@@ -205,7 +201,6 @@
         </div>
       </div>
 
-      <!-- Filtered Question Review Area -->
       <div id="filterReviewArea" class="hidden bg-slate-800 border-2 border-cyan-500/50 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-4">
         <div class="flex items-center justify-between border-b border-slate-700 pb-3">
           <h3 id="filterReviewTitle" class="text-lg font-bold text-white"></h3>
@@ -214,7 +209,6 @@
         <div id="filterReviewList" class="space-y-4 max-h-[60vh] overflow-y-auto custom-scroll pr-1"></div>
       </div>
 
-      <!-- Permanent Solutions Area at bottom -->
       <div id="pdfExportWrapper" class="bg-slate-800 border border-slate-700 rounded-2xl p-6 sm:p-8 shadow-2xl">
         <div class="border-b border-slate-700 pb-4 mb-6">
           <h3 class="text-xl font-bold text-cyan-400" id="pdfExportExamTitle">പക്ഷി സങ്കേതങ്ങൾ & കാലാവസ്ഥ സെറ്റ് 2 - ഉത്തര സൂചിക</h3>
@@ -224,7 +218,7 @@
       </div>
     </div>
 
-    <!-- Leaderboard Modal (Firebase Native) -->
+    <!-- Leaderboard Modal -->
     <div id="leaderboardModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
       <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col max-h-[85vh]">
         <div class="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
@@ -275,7 +269,7 @@
 
   <script>
     const FIREBASE_DB_URL = "https://sk-psc-portal-default-rtdb.asia-southeast1.firebasedatabase.app";
-    let ORIGINAL_PDF_URL = "https://docs.google.com/document/d/YOUR_GOOGLE_DOC_ID/export?format=pdf";
+    let ORIGINAL_PDF_URL = "https://docs.google.com/document/export?format=pdf&id=16-C76Yp_JuNKTGAuQYIrEGz8E5sC-UwrfZDJWWFkfNE";
     let examTitle = "പക്ഷി സങ്കേതങ്ങൾ & കാലാവസ്ഥ സെറ്റ് 2";
 
     const questionsData = [
@@ -453,7 +447,7 @@
 
     function cleanTitleForMatch(str) {
       if (!str) return "";
-      return String(str).replace(/[\s\-_,.:;()\/\\|\[\]]+/g, '').toLowerCase();
+      return String(str).replace(/[\s\-_,.:;()\/\\|\[\]+&]+/g, '').toLowerCase();
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -463,16 +457,31 @@
       const passedTitle = urlParams.get('title');
       const passedPdf = urlParams.get('pdfUrl');
 
+      // 1. പേര് റീഡ് ചെയ്യുന്നു
       if (passedName && passedName.trim() !== '') {
         currentUser.name = decodeURIComponent(passedName).trim();
       } else {
         try {
-          const storedUser = localStorage.getItem('sk_user_name');
-          if (storedUser && storedUser.trim() !== '') currentUser.name = storedUser.trim();
+          const storedUser = localStorage.getItem('sk_candidate_user');
+          if (storedUser) {
+            const u = JSON.parse(storedUser);
+            if (u.name) currentUser.name = u.name;
+          }
         } catch (e) {}
       }
 
-      if (passedPhone) currentUser.phone = decodeURIComponent(passedPhone);
+      // 2. ഫോൺ നമ്പർ റീഡ് ചെയ്യുന്നു
+      if (passedPhone && passedPhone.trim() !== '') {
+        currentUser.phone = decodeURIComponent(passedPhone).replace(/\D/g, '');
+      } else {
+        try {
+          const storedUser = localStorage.getItem('sk_candidate_user');
+          if (storedUser) {
+            const u = JSON.parse(storedUser);
+            if (u.phone) currentUser.phone = String(u.phone).replace(/\D/g, '');
+          }
+        } catch (e) {}
+      }
       
       if (passedTitle) {
         examTitle = decodeURIComponent(passedTitle).trim();
@@ -512,7 +521,6 @@
       }
     });
 
-    // 🌟 ഫയർബേസിൽ നിന്ന് മുൻപത്തെ അറ്റംപ്റ്റ് എടുത്തു കാണിക്കുന്നു
     async function loadPreviousAttemptFromFirebase() {
       let prevScore = 0, prevCorrect = 0, prevWrong = 0, prevSkipped = 0;
 
@@ -653,7 +661,6 @@
       handleReportQuestion(currentIndex + 1);
     });
 
-    // 🌟 ചോദ്യത്തിലെ സംശയം നേരിട്ട് ഫയർബേസിലേക്ക് റിപ്പോർട്ട് ചെയ്യുന്നു
     async function handleReportQuestion(qNum) {
       const reason = prompt(`ചോദ്യം ${qNum} ൽ എന്തെങ്കിലും തെറ്റുകൾ ഉണ്ടെങ്കിൽ ദയവായി താഴെ രേഖപ്പെടുത്തുക:`);
       if (reason && reason.trim()) {
@@ -804,11 +811,24 @@
       });
     }
 
-    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ തത്സമയം സേവ് ചെയ്യുന്നു
+    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (എറർ പൂർണ്ണമായി പരിഹരിച്ചത്)
     async function sendResultToFirebase(payload) {
       const statusDiv = document.getElementById('sheetStatus');
+      
+      // മൊബൈൽ നമ്പർ ഇല്ലെങ്കിൽ ലോക്കൽ സ്റ്റോറേജിൽ ഉണ്ടോ എന്ന് ഒരിക്കൽ കൂടി പരിശോധിക്കുന്നു
       if (!payload.phone || payload.phone === "0000000000") {
-        statusDiv.innerText = "✓ മാർക്ക് സ്ക്രീനിൽ ലഭ്യമാണ് (ലോഗിൻ ചെയ്തിട്ടില്ല).";
+        try {
+          const stored = localStorage.getItem('sk_candidate_user');
+          if (stored) {
+            const u = JSON.parse(stored);
+            if (u.phone) payload.phone = String(u.phone).replace(/\D/g, '');
+            if (u.name && payload.name === "പഠിതാവ്") payload.name = u.name;
+          }
+        } catch(e) {}
+      }
+
+      if (!payload.phone || payload.phone === "0000000000") {
+        statusDiv.innerText = "✓ മാർക്ക് സ്ക്രീനിൽ ലഭ്യമാണ് (ഫോൺ നമ്പർ ലഭ്യമല്ല).";
         statusDiv.classList.remove('animate-pulse');
         return;
       }
@@ -816,35 +836,44 @@
       const cleanExamKey = cleanTitleForMatch(examTitle);
       const todayDate = new Date().toISOString().split('T')[0];
 
+      const rankData = {
+        name: payload.name,
+        phone: payload.phone,
+        score: payload.score,
+        correct: payload.correct,
+        wrong: payload.wrong,
+        date: todayDate
+      };
+
+      const historyData = {
+        title: examTitle,
+        score: payload.score,
+        correct: payload.correct,
+        wrong: payload.wrong,
+        skipped: payload.skipped,
+        date: todayDate,
+        timestamp: Date.now()
+      };
+
       try {
+        // 1. ലൈവ് റാങ്ക് ലിസ്റ്റിലേക്ക് സേവ് ചെയ്യുന്നു
         await fetch(`${FIREBASE_DB_URL}/ranks/${cleanExamKey}/${payload.phone}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: payload.name,
-            phone: payload.phone,
-            score: payload.score,
-            date: todayDate
-          })
+          body: JSON.stringify(rankData)
         });
 
-        await fetch(`${FIREBASE_DB_URL}/users_history/${payload.phone}.json`, {
-          method: 'POST',
+        // 2. വിദ്യാർത്ഥിയുടെ പ്രൊഫൈൽ ഹിസ്റ്ററിയിലേക്ക് കൃത്യമായി സേവ് ചെയ്യുന്നു (Key മാച്ച് ആകുന്ന രീതിയിൽ)
+        await fetch(`${FIREBASE_DB_URL}/users_history/${payload.phone}/${cleanExamKey}.json`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: examTitle,
-            score: payload.score,
-            correct: payload.correct,
-            wrong: wrong,
-            skipped: skipped,
-            date: todayDate,
-            timestamp: Date.now()
-          })
+          body: JSON.stringify(historyData)
         });
 
         statusDiv.innerText = "✓ മാർക്ക് ഫയർബേസിൽ വിജയകരമായി രേഖപ്പെടുത്തി!";
         statusDiv.className = "text-xs text-emerald-400 mb-4";
       } catch (err) {
+        console.error("Firebase save error:", err);
         statusDiv.innerText = "ഡാറ്റ സേവ് ചെയ്യുന്നതിൽ ചെറിയ തടസ്സം നേരിട്ടു.";
         statusDiv.className = "text-xs text-rose-400 mb-4";
       }
@@ -940,7 +969,6 @@
 
     function openFeedbackModal() { document.getElementById('feedbackModal').classList.remove('hidden'); }
 
-    // 🌟 ഫീഡ്ബാക്ക് ഫയർബേസിലേക്ക് അയക്കുന്നു
     async function recordFeedbackAndOpenDownload(feedbackVal) {
       document.getElementById('feedbackModal').classList.add('hidden');
       if (currentUser.phone && currentUser.phone !== "0000000000") {
@@ -1089,7 +1117,6 @@
       });
     });
 
-    // 🌟 ഫയർബേസിൽ നിന്ന് ലൈവ് റാങ്ക് ലിസ്റ്റ് എടുത്തു കാണിക്കുന്നു
     async function fetchLiveLeaderboard() {
       const modal = document.getElementById('leaderboardModal');
       const loader = document.getElementById('leaderboardLoading');
