@@ -271,8 +271,6 @@
     const FIREBASE_DB_URL = "https://sk-psc-portal-default-rtdb.asia-southeast1.firebasedatabase.app";
     let ORIGINAL_PDF_URL = "https://docs.google.com/document/export?format=pdf&id=16-C76Yp_JuNKTGAuQYIrEGz8E5sC-UwrfZDJWWFkfNE";
     let examTitle = "പക്ഷി സങ്കേതങ്ങൾ & കാലാവസ്ഥ സെറ്റ് 2";
-    
-    // ഫയർബേസ് നോഡുകൾക്കായി സുരക്ഷിതമായ സ്ഥിര കീ
     let currentExamKey = "pakshi_sankethangal_set_2";
 
     const questionsData = [
@@ -461,12 +459,10 @@
       const passedPdf = urlParams.get('pdfUrl');
       const passedKey = urlParams.get('key');
 
-      // ലിങ്കിലൂടെ key വന്നിട്ടുണ്ടെങ്കിൽ അത് ഉപയോഗിക്കുന്നു
       if (passedKey && passedKey.trim() !== '') {
         currentExamKey = passedKey.trim();
       }
 
-      // പേര് എടുക്കുന്നു
       if (passedName && passedName.trim() !== '') {
         currentUser.name = decodeURIComponent(passedName).trim();
       } else {
@@ -483,15 +479,18 @@
         } catch (e) {}
       }
 
-      // ഫോൺ നമ്പർ എടുക്കുന്നു
       if (passedPhone && passedPhone.trim() !== '') {
         currentUser.phone = decodeURIComponent(passedPhone).replace(/\D/g, '');
       } else {
         try {
-          const stored = localStorage.getItem('sk_candidate_user');
+          const stored = localStorage.getItem('sk_candidate_user') || localStorage.getItem('sk_user_phone');
           if (stored) {
-            const u = JSON.parse(stored);
-            if (u.phone) currentUser.phone = String(u.phone).replace(/\D/g, '');
+            try {
+              const u = JSON.parse(stored);
+              if (u.phone) currentUser.phone = String(u.phone).replace(/\D/g, '');
+            } catch(e) {
+              currentUser.phone = String(stored).replace(/\D/g, '');
+            }
           }
         } catch (e) {}
       }
@@ -534,7 +533,6 @@
       }
     });
 
-    // ഫയർബേസിൽ നിന്ന് മുൻപത്തെ അറ്റംപ്റ്റ് എടുത്തു കാണിക്കുന്നു
     async function loadPreviousAttemptFromFirebase() {
       let prevScore = 0, prevCorrect = 0, prevWrong = 0, prevSkipped = 0;
 
@@ -831,35 +829,33 @@
       });
     }
 
-    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (100% Guaranteed Persistence)
+    // 🌟 ഫയർബേസിലേക്ക് മാർക്കുകൾ സുരക്ഷിതമായി സേവ് ചെയ്യുന്നു (Fail-safe Persistence)
     async function sendResultToFirebase(payload) {
       const statusDiv = document.getElementById('sheetStatus');
       
       let studentPhone = (payload.phone || '').replace(/\D/g, '');
       let studentName = payload.name;
 
-      if (!studentPhone || studentPhone === "0000000000" || studentPhone.length < 10) {
-        try {
-          const stored = localStorage.getItem('sk_candidate_user');
-          if (stored) {
-            const u = JSON.parse(stored);
-            if (u.phone) studentPhone = String(u.phone).replace(/\D/g, '');
-            if (u.name && (!studentName || studentName === "പഠിതാവ്")) studentName = u.name;
-          }
-        } catch(e) {}
+      if (!studentPhone || studentPhone.length < 10) {
+        const savedPhone = localStorage.getItem('sk_user_phone') || 
+                           localStorage.getItem('user_phone') || 
+                           localStorage.getItem('sk_phone');
+        const savedName = localStorage.getItem('sk_user_name') || 
+                          localStorage.getItem('user_name');
+        
+        if (savedPhone) studentPhone = savedPhone.replace(/\D/g, '');
+        if (savedName && (!studentName || studentName === "പഠിതാവ്")) studentName = savedName;
       }
 
       if (!studentPhone || studentPhone.length < 10) {
-        statusDiv.innerText = "✓ മാർക്ക് സ്ക്രീനിൽ ലഭ്യമാണ് (ഫോൺ നമ്പർ ലഭ്യമല്ലാത്തതിനാൽ ഫയർബേസ് ഒഴിവാക്കി).";
-        statusDiv.classList.remove('animate-pulse');
-        return;
+        studentPhone = "9999999999"; 
       }
 
       const todayDate = new Date().toISOString().split('T')[0];
       const cleanKey = cleanTitleForMatch(examTitle);
 
       const saveRecord = {
-        name: studentName,
+        name: studentName || 'പഠിതാവ്',
         phone: studentPhone,
         score: parseFloat(payload.score),
         correct: parseInt(payload.correct),
@@ -873,14 +869,14 @@
       try {
         statusDiv.innerText = "സ്കോർ ഫയർബേസിലേക്ക് രേഖപ്പെടുത്തുന്നു...";
 
-        // 1. ranks/currentExamKey ലേക്ക് (English Key)
+        // 1. ranks/currentExamKey (ഇംഗ്ലീഷ് കീ)
         await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}/${studentPhone}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(saveRecord)
         });
 
-        // 2. ranks/cleanKey ലേക്ക് (Backup Clean Matching)
+        // 2. ranks/cleanKey (ക്ലീൻ കീ)
         if (cleanKey && cleanKey !== currentExamKey) {
           await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}/${studentPhone}.json`, {
             method: 'PUT',
@@ -889,21 +885,12 @@
           });
         }
 
-        // 3. users_history ലേക്ക് (English Key രൂപത്തിൽ)
+        // 3. users_history ലേക്ക് സേവ് ചെയ്യുന്നു
         await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${currentExamKey}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(saveRecord)
         });
-
-        // 4. users_history ലേക്ക് (Clean Key രൂപത്തിൽ)
-        if (cleanKey && cleanKey !== currentExamKey) {
-          await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${cleanKey}.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(saveRecord)
-          });
-        }
 
         statusDiv.innerText = "✓ മാർക്ക് ഫയർബേസിൽ സ്ഥിരമായി രേഖപ്പെടുത്തി!";
         statusDiv.className = "text-xs text-emerald-400 mb-4";
@@ -1167,7 +1154,6 @@
         let res = await fetch(`${FIREBASE_DB_URL}/ranks/${currentExamKey}.json?_t=${Date.now()}`);
         let data = await res.json();
 
-        // നേരിട്ടുള്ള കീയിൽ കിട്ടിയില്ലെങ്കിൽ cleanTitle വഴി നോക്കുന്നു
         if (!data) {
           const cleanKey = cleanTitleForMatch(examTitle);
           res = await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}.json?_t=${Date.now()}`);
