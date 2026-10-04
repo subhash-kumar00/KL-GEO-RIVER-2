@@ -541,19 +541,23 @@
 
     async function loadPreviousAttemptFromFirebase() {
       let prevScore = 0, prevCorrect = 0, prevWrong = 0, prevSkipped = 0;
+      let studentPhone = sanitizePhone(currentUser.phone);
 
-      if (currentUser.phone && currentUser.phone.length === 10) {
+      if (studentPhone && studentPhone.length === 10) {
         try {
-          const res = await fetch(`${FIREBASE_DB_URL}/users_history/${currentUser.phone}.json?_t=${Date.now()}`);
+          const res = await fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}.json?_t=${Date.now()}`);
           const data = await res.json();
           if (data) {
             let matched = null;
-            if (data[currentExamKey]) {
+            const cleanT = cleanTitleForMatch(examTitle);
+
+            if (data[cleanT]) {
+              matched = data[cleanT];
+            } else if (data[currentExamKey]) {
               matched = data[currentExamKey];
             } else {
               const hList = Object.values(data);
-              const cleanT = cleanTitleForMatch(examTitle);
-              matched = hList.slice().reverse().find(h => cleanTitleForMatch(h.title) === cleanT);
+              matched = hList.slice().reverse().find(h => cleanTitleForMatch(h.title) === cleanT || cleanT.includes(cleanTitleForMatch(h.title)));
             }
 
             if (matched) {
@@ -835,7 +839,7 @@
       });
     }
 
-    // 🌟 ആദ്യ ശ്രമം മാത്രം live_ranks ലേക്കും ബാക്കി Reattempt ഹിസ്റ്ററിയിലേക്കും സുരക്ഷിതമായി സേവ് ചെയ്യുന്ന ഫംഗ്ഷൻ
+    // 🌟 users_history, live_ranks, ranks എന്നിവയിൽ കൃത്യമായ നോഡുകളിൽ സേവ് ചെയ്യുന്ന ഫംഗ്ഷൻ
     async function sendResultToFirebase(payload) {
       const statusDiv = document.getElementById('sheetStatus');
       
@@ -858,10 +862,9 @@
 
       const todayDate = new Date().toISOString().split('T')[0];
       const cleanKey = cleanTitleForMatch(examTitle) || currentExamKey;
-      const encodedCleanKey = encodeURIComponent(cleanKey);
-      const encodedExamKey = encodeURIComponent(currentExamKey);
 
       const saveRecord = {
+        title: examTitle,
         name: String(studentName),
         phone: String(studentPhone),
         Official_Name: String(studentName),
@@ -871,7 +874,6 @@
         correct: parseInt(payload.correct),
         wrong: parseInt(payload.wrong),
         skipped: parseInt(payload.skipped),
-        title: examTitle,
         date: todayDate,
         timestamp: Date.now()
       };
@@ -885,38 +887,32 @@
         }
 
         const fetchOptions = {
-          method: 'PATCH',
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: jsonBody,
           keepalive: true
         };
 
         // 🌟 1. വിദ്യാർത്ഥിക്ക് ഈ പരീക്ഷയിൽ മുമ്പ് സ്കോർ ഉണ്ടോ എന്ന് പരിശോധിക്കുന്നു (First Attempt Check)
-        const [checkLiveRes, checkOldRes] = await Promise.all([
-          fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}/${studentPhone}.json`).catch(() => null),
-          fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}/${studentPhone}.json`).catch(() => null)
-        ]);
-
+        const checkLiveRes = await fetch(`${FIREBASE_DB_URL}/live_ranks/${cleanKey}/${studentPhone}.json`).catch(() => null);
         const liveData = checkLiveRes ? await checkLiveRes.json() : null;
-        const oldData = checkOldRes ? await checkOldRes.json() : null;
 
-        const isFirstAttempt = (!liveData || liveData.score === undefined) && (!oldData || (oldData.score === undefined && oldData.MARK === undefined));
+        const isFirstAttempt = (!liveData || liveData.score === undefined);
 
         let saveTasks = [];
 
         // 🌟 2. ആദ്യ ശ്രമമാണെങ്കിൽ മാത്രം live_ranks ലേക്കും ranks ലേക്കും സേവ് ചെയ്യുന്നു (Reattempt ഓവർറൈറ്റ് ചെയ്യില്ല!)
         if (isFirstAttempt) {
           saveTasks.push(
-            fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}/${studentPhone}.json`, fetchOptions),
-            fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}/${studentPhone}.json`, fetchOptions),
-            fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedExamKey}/${studentPhone}.json`, fetchOptions)
+            fetch(`${FIREBASE_DB_URL}/live_ranks/${cleanKey}/${studentPhone}.json`, fetchOptions),
+            fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}/${studentPhone}.json`, fetchOptions)
           );
         }
 
-        // 🌟 3. വിദ്യാർത്ഥിയുടെ പ്രൊഫൈൽ ഹിസ്റ്ററിയിലേക്ക് (users_history) നിർബന്ധമായും എല്ലാ അറ്റംപ്റ്റുകളും എപ്പോഴും സേവ് ആകുന്നു
+        // 🌟 3. വിദ്യാർത്ഥിയുടെ പ്രൊഫൈൽ ഹിസ്റ്ററിയിലേക്ക് (users_history) നേരിട്ട് ക്ലീൻ കീയിലും currentExamKey-ലും സേവ് ചെയ്യുന്നു
         saveTasks.push(
-          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${encodedCleanKey}.json`, fetchOptions),
-          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${encodedExamKey}.json`, fetchOptions)
+          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${cleanKey}.json`, fetchOptions),
+          fetch(`${FIREBASE_DB_URL}/users_history/${studentPhone}/${currentExamKey}.json`, fetchOptions)
         );
 
         // 🌟 4. യൂസർ പ്രൊഫൈലിലേക്ക് വിവരങ്ങൾ നിലനിർത്തുന്നു
@@ -1199,14 +1195,13 @@
       tbody.innerHTML = '';
 
       const cleanKey = cleanTitleForMatch(examTitle) || currentExamKey;
-      const encodedCleanKey = encodeURIComponent(cleanKey);
 
       try {
-        let res = await fetch(`${FIREBASE_DB_URL}/live_ranks/${encodedCleanKey}.json?_t=${Date.now()}`);
+        let res = await fetch(`${FIREBASE_DB_URL}/live_ranks/${cleanKey}.json?_t=${Date.now()}`);
         let data = await res.json();
 
         if (!data) {
-          res = await fetch(`${FIREBASE_DB_URL}/ranks/${encodedCleanKey}.json?_t=${Date.now()}`);
+          res = await fetch(`${FIREBASE_DB_URL}/ranks/${cleanKey}.json?_t=${Date.now()}`);
           data = await res.json();
         }
 
